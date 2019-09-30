@@ -60,39 +60,39 @@ XTest2<-XTest1[,Sel]
 
 Y<-Target
 
-L=list()
-library(foreach)
+# L=list()
+# library(foreach)
 
-cl <- makeCluster(30)
-registerDoParallel(cl)
+# cl <- makeCluster(30)
+# registerDoParallel(cl)
 
-L<-foreach(i=1:500,.packages = c("caret","glmnet","MLmetrics"))%dopar%{
-  alpha<-runif(n=1,0,1)
-  family<-"binomial"
-  W<-runif(n=1,0.4,.7)
-  Weight<-c(W,1-W)/(table(Target)/(length(Target)))
-  PesiGLM<-Target
-  PesiGLM[which(PesiGLM==1)]<-Weight[2]
-  PesiGLM[which(PesiGLM==0)]<-Weight[1]
-  fit<-cv.glmnet(x=X2,y=Y,alpha=alpha,standardize = F,weight=PesiGLM,family="binomial")
-  pred<-predict(object=fit,newx=XTest2,type="response")
-  return(list(PredictionEnet=pred,ScoreEnet=1/min(fit$cvm)))
-}
+# L<-foreach(i=1:500,.packages = c("caret","glmnet","MLmetrics"))%dopar%{
+#   alpha<-runif(n=1,0,1)
+#   family<-"binomial"
+#   W<-runif(n=1,0.4,.7)
+#   Weight<-c(W,1-W)/(table(Target)/(length(Target)))
+#   PesiGLM<-Target
+#   PesiGLM[which(PesiGLM==1)]<-Weight[2]
+#   PesiGLM[which(PesiGLM==0)]<-Weight[1]
+#   fit<-cv.glmnet(x=X2,y=Y,alpha=alpha,standardize = F,weight=PesiGLM,family="binomial")
+#   pred<-predict(object=fit,newx=XTest2,type="response")
+#   return(list(PredictionEnet=pred,ScoreEnet=1/min(fit$cvm)))
+# }
 
-stopCluster(cl)
+# stopCluster(cl)
 
-C<-L[[1]]$PredictionEnet*L[[1]]$ScoreEnet
-FScore<-L[[1]]$ScoreEnet
-A<-L[[1]]$ScoreEnet
-for(i in 2:length(L)){
-  C<-C+L[[i]]$PredictionEnet*L[[i]]$ScoreEnet
-  FScore<-FScore+L[[i]]$ScoreEnet
-  A<-c(A,L[[i]]$ScoreEnet)
-}
-predF<-C/FScore
+# C<-L[[1]]$PredictionEnet*L[[1]]$ScoreEnet
+# FScore<-L[[1]]$ScoreEnet
+# A<-L[[1]]$ScoreEnet
+# for(i in 2:length(L)){
+#   C<-C+L[[i]]$PredictionEnet*L[[i]]$ScoreEnet
+#   FScore<-FScore+L[[i]]$ScoreEnet
+#   A<-c(A,L[[i]]$ScoreEnet)
+# }
+# predF<-C/FScore
 
 
-cv.glmnet(x=X2,y=Y,alpha=alpha,standardize = F,weight=PesiGLM,family="binomial")
+# cv.glmnet(x=X2,y=Y,alpha=alpha,standardize = F,weight=PesiGLM,family="binomial")
 
 
 fit<-glm(Pred ~.,data=data.frame(X2,Pred=as.factor(Target)),family=binomial("logit"))
