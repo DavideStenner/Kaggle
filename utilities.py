@@ -140,3 +140,108 @@ train[feature].map(pd.concat([train[feature], test[feature]], ignore_index=True)
 
 #TRAIN 
 train[feature].map(train[feature].value_counts(dropna=False))
+
+
+
+
+##########################################################################################
+#IMPORTANCE CALCULATOR
+class Importance_calculator:
+    def __init__(self,X,y,param_list,num_round=1000,metric=roc_auc_score,cv=5,random_state=0,modeltype='tree',scale=False):
+        
+        self.X=X
+        self.y=y
+        self.cv=cv
+        self.scale=scale
+        self.param_list=param_list
+        self.metric=metric
+        self.num_round=num_round
+        self.random_state=random_state
+        self.modeltype=modeltype
+        
+    def scorer(self,y_true,y_pred):
+        return(self.metric(y_true,y_pred))
+  
+    def permutate_column_predict(self,model,valid_x,valid_y):
+        perm_pred = []
+        np.random.seed(self.random_state)
+        for col in tqdm_notebook(valid_x.columns):
+            value = valid_x[col].copy()
+            valid_x[col] = np.random.permutation(valid_x[col].values)
+            perm_pred=perm_pred+[self.scorer(valid_y,self.pred_wrapper(model,valid_x,self.modeltype))] #predict
+            valid_x[col] = value
+        return(perm_pred)
+    
+    def pred_wrapper(self,model,x,modeltype='logit'):
+        if modeltype is 'logit':
+            return(model.predict_proba(x)[:,1])
+        else:
+            return(model.predict(x))
+        
+    def scaler(self,train,valid):
+        train_mean , train_std = train.mean(axis=0),train.std(axis=0)
+        #rescale inside the cycle to not overfit
+        train-=train_mean
+        valid-=train_mean
+
+        train/=train_std
+        valid/=train_std
+        return(train,valid)
+    
+    def build_neural(self):
+        Input = layers.Input(shape=(self.X.shape[1],))
+        x = layer.Dense(self.param_list['number'],activation=self.param_list['activation'])(Input)
+        pred=layers.Dense(1,activation='softmax')(x)
+        self.NN_model=Model(inputs=Input,outputs=pred)
+        
+    def cv_score_importance(self):
+        N=self.X.shape[1]
+        folds = StratifiedKFold(n_splits=self.cv, shuffle=True,random_state=self.random_state)
+        print('Inizio train e scoring:\n')
+        self.importance_permutation_score=[0]*N
+        Error=0
+        for trn_idx, val_idx in tqdm_notebook(folds.split(self.X, self.y)):
+                train_x, train_y = self.X.iloc[trn_idx], self.y.iloc[trn_idx]
+                valid_x, valid_y = self.X.iloc[val_idx], self.y.iloc[val_idx]
+                if self.scale is True:
+                    train_x,valid_x=self.scaler(train_x,valid_x)
+                    
+                print('Inizio train.\n')
+                if self.modeltype is 'logit':
+                    model = LogisticRegression(**self.param_list).fit(train_x, train_y)
+                if self.modeltype is 'neural':
+                    self.build_neural(param= self.param_list)
+                    self.NN_model.compile(optimizer='adam',loss='binary_crossentropy')
+                    model = self.NN_model.fit(train_x, train_y,epochs=100)
+                if self.modeltype is 'tree':
+                    model = lgb.train(self.param_list,lgb.Dataset(train_x, label=train_y),self.num_round)
+                
+                print('inizio calcolo permutation.\n')
+                perm_pred = self.permutate_column_predict(model,valid_x,valid_y)
+                Pred=self.scorer(valid_y,self.pred_wrapper(model,valid_x,self.modeltype))
+                Error+=Pred
+                print('AUC-ROC cv : {}\n'.format(Pred))
+                base_pred = [Pred] * N
+                tmp_diff=[base_pred[i]-perm_pred[i] for i in range(N)]
+                self.importance_permutation_score=[self.importance_permutation_score[i]+tmp_diff[i] for i in range(N)]
+        print('AUC-ROC cv: {}\n'.format(Error/self.cv))
+        return([self.importance_permutation_score[i]/np.float(self.cv) for i in range(N)])
+#########################################################################################################
+
+# NEGATIVE SAMPLING 
+class Negative_Sampler:
+  
+  def __init__(self,vector,prob_pos=1,prob_neg=.5,seed=0):
+    self.prob_pos=prob_pos
+    self.prob_neg=prob_neg
+    self.vector=vector
+    self.seed=seed
+    
+  def negative_sample(self):
+    np.random.seed(self.seed)
+    Positive = np.where(self.vector==1)[0]
+    Negative = np.where(self.vector==0)[0]
+    Positive_sample= np.random.choice(Positive,np.int(np.round((self.prob_pos)*len(Positive))),replace=False).tolist()
+    Negative_sample= np.random.choice(Negative,np.int(np.round((self.prob_neg)*len(Negative))),replace=False).tolist()
+    result=np.sort(Positive_sample+Negative_sample)
+    return(result)
