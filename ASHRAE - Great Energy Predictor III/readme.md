@@ -1,4 +1,4 @@
-This challenge consists on predicting energy usage from over 1440 different building.
+This challenge consists on predicting energy usage from 1440 different building.
 
 Pre process is made with r + data.table.
 
