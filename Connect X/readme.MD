@@ -5,3 +5,7 @@ My solution is based on the approach in this two link:
 
 - http://blog.gamesolver.org/
 - https://towardsdatascience.com/creating-the-perfect-connect-four-ai-bot-c165115557b0
+
+The heuristic function is based on the concept of threats and winning row and is taken from:
+
+-https://pdfs.semanticscholar.org/35de/5f75444e1fc1c96cb6378393f3ff24a74099.pdf
