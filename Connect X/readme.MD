@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://github.com/DavideStenner/Kaggle/blob/master/Connect%20X/image.png" />
+</p>
+
 This challenge consists on definining an agent which can play connect 4.
 I used Negamax with alpha beta pruning + Bitboard (to increase speed).
 
