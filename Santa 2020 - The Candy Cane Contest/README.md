@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/DavideStenner/Kaggle/blob/master/Santa%202020%20-%20The%20Candy%20Cane%20Contest/santa_contest_banner.png" />
+  <img src="https://github.com/DavideStenner/Kaggle/blob/master/Santa%202020%20-%20The%20Candy%20Cane%20Contest/santa_contest_banner.PNG" />
 </p>
 
 This challenge is a two player game and consists of taking the more candy as possible from 100 different canes. Each Cane has a probability of giving a candy and each time it is
@@ -15,11 +15,11 @@ The different notebooks are:
 The dictionary winner_dic saves the list of the match which has been scraped yet and the winner list, which is used during the generation of the 
 dataset.
 
--generate-everything-step-*: This notebook used the scraped match and generate the training dataset by creating the feature for each bandit in every round.
+- generate-everything-step-*: This notebook used the scraped match and generate the training dataset by creating the feature for each bandit in every round.
 Each match will have num_bandit * number_round = 100 * 1999 = 199900 rows and 18 columns.
 
--mapping_sub_score: is a notebook which saves the final score for each agent. This score is used as a weight during the Lightgbm train.
+- mapping_sub_score: is a notebook which saves the final score for each agent. This score is used as a weight during the Lightgbm train.
 
--lgbm-train: in this notebook we trained the Lightgbm model using the score of the agent as a weight for each row.
+- lgbm-train: in this notebook we trained the Lightgbm model using the score of the agent as a weight for each row.
 
--lgbm-agent: This is the submitted agent, which uses a greedy method based on the Lightgbm evaluation of each bandit expected reward.
+- lgbm-agent: This is the submitted agent, which uses a greedy method based on the Lightgbm evaluation of each bandit expected reward.
