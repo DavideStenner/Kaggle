@@ -245,3 +245,117 @@ class Negative_Sampler:
     Negative_sample= np.random.choice(Negative,np.int(np.round((self.prob_neg)*len(Negative))),replace=False).tolist()
     result=np.sort(Positive_sample+Negative_sample)
     return(result)
+
+
+#############################################################################################################
+# CALC BEST CENTROID
+
+
+from sklearn.model_selection import KFold
+from sklearn_extra.cluster import KMedoids
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import adjusted_rand_score
+import warnings
+import gc
+
+class centroid_finder:
+
+    """
+    Class used to calculate best number of cluster and the cluster
+    """
+    
+    def __init__(self, range_search = np.arange(2, 8 + 1),
+                 model_forecast = LogisticRegression, model_forecast_parameter = {'max_iter': 1000},
+                 model_aggregation = KMedoids, model_aggregation_parameter = {'metric': 'euclidean'},
+                 score_fn = adjusted_rand_score, score_argument = {}, verbose = False):
+        
+        self.range_search = range_search
+        
+        self.model_forecast = model_forecast
+        self.model_forecast_parameter = model_forecast_parameter
+        
+        self.model_aggregation = model_aggregation
+        self.model_aggregation_parameter = model_aggregation_parameter
+        
+        self.score_fn = score_fn
+        self.score_argument = score_argument
+        
+        self.verbose = verbose
+        self.metric = model_aggregation_parameter['metric']
+
+    def number_centroid(self, data, n_folder = 5, repeat = 3):
+        """
+        Calculates the cross validation score with repetition for each number of cluster
+
+        return the best number of cluster
+        """
+        
+        score = []
+        for i in self.range_search:
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                temp_score = self.run_cv(data = data, n_cluster = i, n_folder = n_folder, repeat = repeat)
+            if self.verbose:
+                print(f'# Cluster:  {i}, Score: {temp_score}')
+
+            score += [temp_score]
+
+        self.best_number = self.range_search[np.argmax(score)]
+
+    def run_cv(self, data, n_cluster, n_folder, repeat):
+        """
+        Given a dataset of embedding, the number of cluster to test, the number of folder and the number of repetition
+        It calculates the cv scores to select best number of cluster by calculating adjusted_rand_score.
+        http://statweb.stanford.edu/~gwalther/predictionstrength.pdf
+        """
+        score_f = 0
+        for r_s in range(repeat):
+            
+            kf = KFold(n_splits = n_folder, random_state = r_s, shuffle = True)
+            
+            score = 0
+            for train_index, valid_index in kf.split(data):
+
+                X_train, X_valid = data[train_index,:], data[valid_index,:]
+
+                clustering_model = self.model_aggregation(n_clusters = n_cluster, **self.model_aggregation_parameter )
+                clustering_model.fit(X_train)
+
+                y_train = clustering_model.labels_
+
+                #If there is only one cluster then skip and return 0 score
+                if len(np.unique(y_train)) == 1:
+                    return 0
+                
+                centroid_train = clustering_model.cluster_centers_
+
+                distance = scipy.spatial.distance.cdist(X_valid, centroid_train, self.metric)
+                y_valid = np.argmin(distance, axis = 1)
+
+                model = self.model_forecast(**self.model_forecast_parameter)
+                model.fit(X_train, y_train)
+
+                predict = model.predict(X_valid)
+
+                score += self.score_fn(y_valid, predict, **self.score_argument)/n_folder
+            
+            del X_train, X_valid, clustering_model, y_train, y_valid
+            gc.collect()
+            score_f += score/repeat
+            
+        return score
+
+    def run_cluster(self, data):
+        """
+        After calculation of best number of cluster calculates the cluster
+
+        return the cluster centroid, labels and cluster indices
+        """
+        
+        clustering_model = self.model_aggregation(n_clusters = self.best_number, **self.model_aggregation_parameter)
+        clustering_model.fit(data)
+        
+        self.labels_ = clustering_model.labels_
+        self.cluster_centers_ = clustering_model.cluster_centers_
+        self.medoid_indices_ = clustering_model.medoid_indices_
