@@ -267,7 +267,7 @@ class centroid_finder:
     def __init__(self, range_search = np.arange(2, 8 + 1),
                  model_forecast = LogisticRegression, model_forecast_parameter = {'max_iter': 1000},
                  model_aggregation = KMedoids, model_aggregation_parameter = {'metric': 'euclidean'},
-                 score_fn = adjusted_rand_score, score_argument = {}, verbose = False):
+                 score_fn = adjusted_rand_score, score_argument = {}, verbose = False, metric = 'euclidean'):
         
         self.range_search = range_search
         
@@ -281,7 +281,40 @@ class centroid_finder:
         self.score_argument = score_argument
         
         self.verbose = verbose
-        self.metric = model_aggregation_parameter['metric']
+        self.metric = metric
+
+    """
+    Change for different model
+    """
+    def forecast_fit(self, X_train, y_train, X_valid):
+        model = self.model_forecast(**self.model_forecast_parameter)
+        model.fit(X_train, y_train)
+
+        predict = model.predict(X_valid)
+
+        return predict
+
+
+    """
+    Change for different model
+    """
+    def cluster_predict(self, clustering_model, X):
+        centroid_train = clustering_model.cluster_centers_
+
+        distance = scipy.spatial.distance.cdist(X, centroid_train, self.metric)
+        Y = np.argmin(distance, axis = 1)
+
+        return Y
+
+    """
+    Change for different model
+    """
+    def cluster_fit(self, n_cluster, X_train):
+
+        clustering_model = self.model_aggregation(n_clusters = n_cluster, **self.model_aggregation_parameter )
+        clustering_model.fit(X_train)
+
+        return clustering_model
 
     def number_centroid(self, data, n_folder = 5, repeat = 3):
         """
@@ -296,6 +329,7 @@ class centroid_finder:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 temp_score = self.run_cv(data = data, n_cluster = i, n_folder = n_folder, repeat = repeat)
+                
             if self.verbose:
                 print(f'# Cluster:  {i}, Score: {temp_score}')
 
@@ -318,30 +352,23 @@ class centroid_finder:
             for train_index, valid_index in kf.split(data):
 
                 X_train, X_valid = data[train_index,:], data[valid_index,:]
+                clustering_model = self.cluster_fit(n_cluster, X_train)
 
-                clustering_model = self.model_aggregation(n_clusters = n_cluster, **self.model_aggregation_parameter )
-                clustering_model.fit(X_train)
-
-                y_train = clustering_model.labels_
+                y_train = self.cluster_predict(clustering_model, X_train)
 
                 #If there is only one cluster then skip and return 0 score
                 if len(np.unique(y_train)) == 1:
                     return 0
                 
-                centroid_train = clustering_model.cluster_centers_
+                y_valid = self.cluster_predict(clustering_model, X_valid)
 
-                distance = scipy.spatial.distance.cdist(X_valid, centroid_train, self.metric)
-                y_valid = np.argmin(distance, axis = 1)
-
-                model = self.model_forecast(**self.model_forecast_parameter)
-                model.fit(X_train, y_train)
-
-                predict = model.predict(X_valid)
+                predict = self.forecast_fit(X_train, y_train, X_valid)
 
                 score += self.score_fn(y_valid, predict, **self.score_argument)/n_folder
             
             del X_train, X_valid, clustering_model, y_train, y_valid
             gc.collect()
+            
             score_f += score/repeat
             
         return score
@@ -356,6 +383,4 @@ class centroid_finder:
         clustering_model = self.model_aggregation(n_clusters = self.best_number, **self.model_aggregation_parameter)
         clustering_model.fit(data)
         
-        self.labels_ = clustering_model.labels_
-        self.cluster_centers_ = clustering_model.cluster_centers_
-        self.medoid_indices_ = clustering_model.medoid_indices_
+        self.model = clustering_model
