@@ -253,23 +253,40 @@ class Negative_Sampler:
 
 from sklearn.model_selection import KFold
 from sklearn_extra.cluster import KMedoids
+from sklearn.cluster import KMeans
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import adjusted_rand_score
 import warnings
 import gc
+import scipy
+from tqdm import tqdm
+from sklearn.decomposition import PCA
+import numpy as np
 
-class centroid_finder:
+class CentroidFinder:
 
     """
-    Class used to calculate best number of cluster and the cluster
+    Class used to calculate best number of cluster and the cluster using KMedoids or KMEan
     """
     
-    def __init__(self, range_search = np.arange(2, 8 + 1),
+    def __init__(self, 
+                 range_search = np.arange(2, 8 + 1),
+                 rescale=True, pca=True, pca_variance_treshold=0.95,
                  model_forecast = LogisticRegression, model_forecast_parameter = {'max_iter': 1000},
-                 model_aggregation = KMedoids, model_aggregation_parameter = {'metric': 'euclidean'},
-                 score_fn = adjusted_rand_score, score_argument = {}, verbose = False, metric = 'euclidean'):
+                 model_aggregation = KMedoids, model_aggregation_parameter = {'metric': 'euclidean', 'init': 'k-medoids++'},
+                 score_fn = adjusted_rand_score, score_argument = {}, 
+                 progress=True, verbose = False, metric = 'euclidean'
+        ):
         
         self.range_search = range_search
+        
+        self.rescale = rescale
+        self.pca = pca
+        
+        if self.pca:
+            assert self.rescale, "PCA needs rescaled data" 
+        
+        self.pca_variance_treshold = pca_variance_treshold
         
         self.model_forecast = model_forecast
         self.model_forecast_parameter = model_forecast_parameter
@@ -281,7 +298,35 @@ class centroid_finder:
         self.score_argument = score_argument
         
         self.verbose = verbose
+        self.progress = progress
         self.metric = metric
+        self.cv_score = None
+        
+    def center_data(self, data):
+        """
+        Rescale data by center and deviance 1
+        """
+        return (data - data.mean(axis=0))/(data.std(axis=0))
+    
+    def rescale_pca(self, data):
+        """
+        Remove noise from data and rescale
+        """        
+        #remove noise (0.05 std)
+        num_cols = data.shape[1]
+        explained_cumulative_variance = np.cumsum(
+            PCA(n_components=num_cols).fit(data).explained_variance_ratio_
+        )
+        
+        removed_noise_dimension = np.where(explained_cumulative_variance>=self.pca_variance_treshold)[0][0] + 1
+        
+        print(
+            'Variance cumulative keeped\n', explained_cumulative_variance[:removed_noise_dimension], 
+            '\nNumber of dimension: ', removed_noise_dimension
+        )
+        
+        removed_noise_data = PCA(n_components=removed_noise_dimension).fit_transform(data)
+        return removed_noise_data
 
     """
     Change for different model
@@ -311,42 +356,48 @@ class centroid_finder:
     """
     def cluster_fit(self, n_cluster, X_train):
 
-        clustering_model = self.model_aggregation(n_clusters = n_cluster, **self.model_aggregation_parameter )
+        clustering_model = self.model_aggregation(n_clusters = n_cluster, **self.model_aggregation_parameter)
         clustering_model.fit(X_train)
 
         return clustering_model
 
-    def number_centroid(self, data, n_folder = 5, repeat = 3):
+    def number_centroid(self, data, n_fold = 5, repeat = 3):
         """
         Calculates the cross validation score with repetition for each number of cluster
-
         return the best number of cluster
         """
         
+        if self.rescale:
+            data = self.center_data(data)
+            if self.pca:
+                data = self.rescale_pca(data)
+        
         score = []
-        for i in self.range_search:
+        search_over = tqdm(self.range_search, total=len(self.range_search)) if self.progress else self.range_search
+        for i in search_over:
 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                temp_score = self.run_cv(data = data, n_cluster = i, n_folder = n_folder, repeat = repeat)
+                temp_score = self.run_cv(data = data, n_cluster = i, n_fold = n_fold, repeat = repeat)
                 
             if self.verbose:
                 print(f'# Cluster:  {i}, Score: {temp_score}')
 
             score += [temp_score]
-
+        
         self.best_number = self.range_search[np.argmax(score)]
+        self.cv_score = score
 
-    def run_cv(self, data, n_cluster, n_folder, repeat):
+    def run_cv(self, data, n_cluster, n_fold, repeat):
         """
-        Given a dataset of embedding, the number of cluster to test, the number of folder and the number of repetition
+        Given a dataset, the number of cluster to test, the number of folder and the number of repetition
         It calculates the cv scores to select best number of cluster by calculating adjusted_rand_score.
         http://statweb.stanford.edu/~gwalther/predictionstrength.pdf
         """
         score_f = 0
         for r_s in range(repeat):
             
-            kf = KFold(n_splits = n_folder, random_state = r_s, shuffle = True)
+            kf = KFold(n_splits = n_fold, random_state = r_s, shuffle = True)
             
             score = 0
             for train_index, valid_index in kf.split(data):
@@ -364,22 +415,25 @@ class centroid_finder:
 
                 predict = self.forecast_fit(X_train, y_train, X_valid)
 
-                score += self.score_fn(y_valid, predict, **self.score_argument)/n_folder
+                score += self.score_fn(y_valid, predict, **self.score_argument)/n_fold
             
             del X_train, X_valid, clustering_model, y_train, y_valid
             gc.collect()
             
             score_f += score/repeat
             
-        return score
+        return score_f
 
     def run_cluster(self, data):
         """
         After calculation of best number of cluster calculates the cluster
-
         return the cluster centroid, labels and cluster indices
         """
-        
+        if self.rescale:
+            data = self.center_data(data)
+            if self.pca:
+                data = self.rescale_pca(data)
+
         clustering_model = self.model_aggregation(n_clusters = self.best_number, **self.model_aggregation_parameter)
         clustering_model.fit(data)
         
