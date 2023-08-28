@@ -1,0 +1,8 @@
+kaggle.json
+.venv
+icr-identify-age-related-conditions.zip
+data/*
+!data/
+__pycache__
+*.pbix
+experiment/*
