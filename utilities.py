@@ -70,7 +70,11 @@ def sd(
         if is_float and (str(type)[:3] == 'int'):
             col_tmp = col_tmp.copy().fillna(fillna).round()
 
-        col_tmp = col_tmp.astype(type)
+        #pandas and numpy raise error for overflow
+        try:
+            col_tmp = col_tmp.astype(type)
+        except:
+            continue
         max_loss = (col_tmp - col).abs().max()
         avg_loss = (col_tmp - col).abs().mean()
         na_loss = np.abs(na_count - col_tmp.isna().sum())
