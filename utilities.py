@@ -38,8 +38,15 @@ def target_encode(trn_series=None,
 
 ## SAFE MEMORY REDUCTION
 
-def sd(col, max_loss_limit=0.001, avg_loss_limit=0.001, na_loss_limit=0, n_uniq_loss_limit=0, fillna=0):
+def sd(
+        col: pd.Series, use_half:bool,
+        max_loss_limit=0.001, avg_loss_limit=0.001, 
+        na_loss_limit: float=0, 
+        n_uniq_loss_limit: float=0, 
+        fillna: float=0
+    ) -> pd.Series:
     """
+    use_half - use half precision e.g. float16.
     max_loss_limit - don't allow any float to lose precision more than this value. Any values are ok for GBT algorithms as long as you don't unique values.
                      See https://en.wikipedia.org/wiki/Half-precision_floating-point_format#Precision_limitations_on_decimal_values_in_[0,_1]
     avg_loss_limit - same but calculates avg throughout the series.
@@ -49,11 +56,13 @@ def sd(col, max_loss_limit=0.001, avg_loss_limit=0.001, na_loss_limit=0, n_uniq_
     is_float = str(col.dtypes)[:5] == 'float'
     na_count = col.isna().sum()
     n_uniq = col.nunique(dropna=False)
-    try_types = ['float16', 'float32']
+    try_types = ['float16', 'float32'] if use_half else ['float32']
 
     if na_count <= na_loss_limit:
-        try_types = ['int8', 'int16', 'float16', 'int32', 'float32']
-
+        try_types = (
+            ['uint8', 'int8', 'uint16', 'int16', 'float16', 'uint32', 'int32', 'float32'] if use_half
+            else ['uint8', 'int8', 'uint16', 'int16', 'uint32', 'int32', 'float32']
+        )
     for type in try_types:
         col_tmp = col
 
@@ -73,40 +82,19 @@ def sd(col, max_loss_limit=0.001, avg_loss_limit=0.001, na_loss_limit=0, n_uniq_
     # field can't be converted
     return col
 
-##MEMORY ENCODING IMPLEMENTATION ON TRAIN AND SET OOF.
-#   for f in tqdm_notebook(Cat):
-#       gc.collect()
-#       train[f+'_mean_target']=None
-#       test[f+'_mean_target']=None
-#       for trn_idx, val_idx in folds.split(train.values, train.target.values):
-#           gc.collect()
-#           trn_f, trn_tgt = train[f].iloc[trn_idx], train.target.iloc[trn_idx]
-#           val_f, val_tgt = train[f].iloc[val_idx], train.target.iloc[val_idx]
-#           trn_tf, val_tf = target_encode(trn_series=trn_f, 
-#                                          tst_series=val_f, 
-#                                          target=trn_tgt, 
-#                                          min_samples_leaf=10, 
-#                                          smoothing=2,
-#                                          noise_level=0)
+def reduce_mem_usage_sd(
+        df: pd.DataFrame, use_half: bool=True,
+        numerics: list[str] = ['int16', 'uint16', 'int32', 'uint32', 'int64', 'uint64', 'float16', 'float32', 'float64'],
+        deep: bool=True, verbose: bool=False, obj_to_cat:bool=False
+    ) -> pd.DataFrame:
+    np.seterr(over='ignore')
+    
+    #take out float16 --> parquet format
+    if not use_half:
+        numerics = [x for x in numerics if x!='float16']
         
-#           train.loc[val_idx,f+'_mean_target']=val_tf
-#           del trn_f, trn_tgt, val_f, val_tgt, trn_tf, val_tf
-#       gc.collect()
-#       trn_tf, val_tf = target_encode(trn_series=train[f], 
-#                                  tst_series=test[f], 
-#                                  target=train.target, 
-#                                  min_samples_leaf=10, 
-#                                  smoothing=2,
-#                                  noise_level=0)
-#       test[f+'_mean_target']=val_tf
-#       del trn_tf, val_tf
-
-###################################################################################
-
-def reduce_mem_usage_sd(df, deep=True, verbose=False, obj_to_cat=False):
-    numerics = ['int16', 'uint16', 'int32', 'uint32', 'int64', 'uint64', 'float16', 'float32', 'float64']
     start_mem = df.memory_usage(deep=deep).sum() / 1024 ** 2
-    for col in tqdm_notebook(df.columns):
+    for col in df.columns:
         col_type = df[col].dtypes
 
         # collect stats
@@ -115,7 +103,7 @@ def reduce_mem_usage_sd(df, deep=True, verbose=False, obj_to_cat=False):
         
         # numerics
         if col_type in numerics:
-            df[col] = sd(df[col])
+            df[col] = sd(df[col], use_half)
 
         # strings
         if (col_type == 'object') and obj_to_cat:
@@ -133,7 +121,10 @@ def reduce_mem_usage_sd(df, deep=True, verbose=False, obj_to_cat=False):
     end_mem = df.memory_usage(deep=deep).sum() / 1024 ** 2
     percent = 100 * (start_mem - end_mem) / start_mem
     print('Mem. usage decreased from {:5.2f} Mb to {:5.2f} Mb ({:.1f}% reduction)'.format(start_mem, end_mem, percent))
+    
+    np.seterr(over='warn')
     return df
+
 ####################################################################################
 #COUNT ENCODING TRAIN AND TEST
 train[feature].map(pd.concat([train[feature], test[feature]], ignore_index=True).value_counts(dropna=False))
